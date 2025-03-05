@@ -52,52 +52,18 @@ public class AIOAnvil extends Script {
 
     @Override
     public int poll() {
-        if (anvilInterface.isVisible()) {
-            if (handleAnvilInterface()) {
-                // sleep until finished smithing items
-                Timer amountChangeTimer = new Timer();
-                AtomicReference<Integer> previousAmount = new AtomicReference<>(-1);
-                submitHumanTask(() -> {
-                    DialogueType dialogueType = getWidgetManager().getDialogue().getDialogueType();
-                    if (dialogueType != null) {
-                        // look out for level up dialogue etc.
-                        if (dialogueType == DialogueType.TAP_HERE_TO_CONTINUE) {
-                            // sleep for a random time so we're not instantly reacting to the dialogue
-                            // we do this in the task to continue updating the screen
-                            submitTask(() -> false, random(1000, 4000));
-                            return true;
-                        }
-                    }
-
-                    // If the amount of gems in the inventory hasn't changed and the timeout is exceeded, then return true to break out of the sleep method
-                    if (amountChangeTimer.timeElapsed() > TimeUnit.SECONDS.toMillis(AMOUNT_CHANGE_TIMEOUT_SECONDS)) {
-                        return true;
-                    }
-                    UIResultList<ItemSearchResult> bars = getItemManager().findAllOfItem(getWidgetManager().getInventory(), selectedBarID);
-                    if (bars.isNotVisible()) {
-                        return false;
-                    }
-                    int amount = bars.size();
-
-                    // if no bars left break out
-                    if (amount < selectedProduct.getBarsNeeded()) {
-                        return true;
-                    }
-                    // check if bars have decremented
-                    if (amount < previousAmount.get() || previousAmount.get() == -1) {
-                        previousAmount.set(amount);
-                        amountChangeTimer.reset();
-                    }
-
-                    return false;
-                }, 40000, true, false, true);
-            }
-            return 0;
-        }
         if (getWidgetManager().getBank().isVisible()) {
             handleBankInterface();
             return 0;
         }
+
+        if (anvilInterface.isVisible()) {
+            if (handleAnvilInterface()) {
+                waitUntilFinishedSmithing();
+            }
+            return 0;
+        }
+
         UIResultList<ItemSearchResult> bars = getItemManager().findAllOfItem(getWidgetManager().getInventory(), selectedBarID);
         if (bars.isNotVisible()) {
             return 0;
@@ -116,8 +82,48 @@ public class AIOAnvil extends Script {
             // if fail to interact (we don't necessarily need to do anything here as we need to try again, so return to the top of the loop)
             return 0;
         }
-        submitHumanTask(() -> anvilInterface.isVisible(), random(5000, 8000));
+        submitHumanTask(() -> anvilInterface.isVisible(), 15000);
         return 0;
+    }
+
+    private void waitUntilFinishedSmithing() {
+        // sleep until finished smithing items
+        Timer amountChangeTimer = new Timer();
+        AtomicReference<Integer> previousAmount = new AtomicReference<>(-1);
+        submitHumanTask(() -> {
+            DialogueType dialogueType = getWidgetManager().getDialogue().getDialogueType();
+            if (dialogueType != null) {
+                // look out for level up dialogue etc.
+                if (dialogueType == DialogueType.TAP_HERE_TO_CONTINUE) {
+                    // sleep for a random time so we're not instantly reacting to the dialogue
+                    // we do this in the task to continue updating the screen
+                    submitTask(() -> false, random(1000, 4000));
+                    return true;
+                }
+            }
+
+            // If the amount of gems in the inventory hasn't changed and the timeout is exceeded, then return true to break out of the sleep method
+            if (amountChangeTimer.timeElapsed() > TimeUnit.SECONDS.toMillis(AMOUNT_CHANGE_TIMEOUT_SECONDS)) {
+                return true;
+            }
+            UIResultList<ItemSearchResult> bars = getItemManager().findAllOfItem(getWidgetManager().getInventory(), selectedBarID);
+            if (bars.isNotVisible()) {
+                return false;
+            }
+            int amount = bars.size();
+
+            // if no bars left break out
+            if (amount < selectedProduct.getBarsNeeded()) {
+                return true;
+            }
+            // check if bars have decremented
+            if (amount < previousAmount.get() || previousAmount.get() == -1) {
+                previousAmount.set(amount);
+                amountChangeTimer.reset();
+            }
+
+            return false;
+        }, 40000, true, false, true);
     }
 
     @Override
@@ -134,7 +140,10 @@ public class AIOAnvil extends Script {
             log(getClass().getSimpleName(), "Can't find item inside interface.");
             return false;
         }
-        interfaceItem.get().interact();
+        // if we purposely missclick or fail in general
+        if (!interfaceItem.get().interact()) {
+            return false;
+        }
         return submitHumanTask(() -> !anvilInterface.isVisible(), 4000);
     }
 
